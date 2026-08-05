@@ -136,7 +136,7 @@ public class ShieldstralClient {
             }
 
             JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-            Map<String, Double> scores = parseBatchScores(json, batch.size());
+            Map<Integer, Double> scores = parseBatchScores(json, batch.size());
 
             for (int i = 0; i < batch.size(); i++) {
                 ChatRequest req = batch.get(i);
@@ -158,8 +158,8 @@ public class ShieldstralClient {
         }
     }
 
-    private Map<String, Double> parseBatchScores(JsonObject json, int expectedCount) {
-        Map<String, Double> scores = new HashMap<>();
+    private Map<Integer, Double> parseBatchScores(JsonObject json, int expectedCount) {
+        Map<Integer, Double> scores = new HashMap<>();
         try {
             JsonArray choices = json.getAsJsonArray("choices");
             if (choices == null || choices.size() < expectedCount) {
@@ -195,7 +195,7 @@ public class ShieldstralClient {
                 double expYes = Math.exp(zYes);
                 double expNo = Math.exp(zNo);
                 double score = expYes / (expYes + expNo);
-                scores.put(String.valueOf(i), score);
+                scores.put(i, score);
             }
         } catch (Exception e) {
             plugin.getLogger().warning("Failed to parse batch scores: " + e.getMessage());
