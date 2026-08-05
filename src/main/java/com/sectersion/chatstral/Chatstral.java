@@ -17,12 +17,11 @@ public final class Chatstral extends JavaPlugin {
     public void onEnable() {
         saveDefaultConfig();
 
-        double threshold = getConfig().getDouble("ai-threshold", 0.5);
         boolean aiEnabled = getConfig().getBoolean("ai-filter-enabled", true);
 
         blacklist = new Blacklist(this);
         modelManager = new ModelManager(this);
-        shieldstralClient = new ShieldstralClient(modelManager, this, threshold);
+        shieldstralClient = new ShieldstralClient(modelManager, this);
         chatFilter = new ChatFilter(this, shieldstralClient, blacklist);
 
         getServer().getPluginManager().registerEvents(chatFilter, this);
@@ -72,8 +71,9 @@ public final class Chatstral extends JavaPlugin {
                     sender.sendMessage(Component.text("No permission.").color(NamedTextColor.RED));
                     return true;
                 }
+                reloadConfig();
                 blacklist.reload();
-                sender.sendMessage(Component.text("Blacklist reloaded!").color(NamedTextColor.GREEN));
+                sender.sendMessage(Component.text("Config and blacklist reloaded!").color(NamedTextColor.GREEN));
                 return true;
             }
 

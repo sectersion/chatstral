@@ -32,22 +32,25 @@ public class ModelManager {
     private static final long DOWNLOAD_TIMEOUT = 30 * 60 * 1000;
 
     private enum OsType {
-        WINDOWS_X64("windows-x64", "llama-server.exe"),
-        LINUX_X64("ubuntu-x64", "llama-server"),
-        LINUX_ARM64("ubuntu-arm64", "llama-server"),
-        MACOS_X64("macos-x64", "llama-server"),
-        MACOS_ARM64("macos-arm64", "llama-server");
+        WINDOWS_X64("win-cpu-x64", "llama-server.exe", "zip"),
+        LINUX_X64("ubuntu-x64", "llama-server", "tar.gz"),
+        LINUX_ARM64("ubuntu-arm64", "llama-server", "tar.gz"),
+        MACOS_X64("macos-x64", "llama-server", "tar.gz"),
+        MACOS_ARM64("macos-arm64", "llama-server", "tar.gz");
 
         private final String assetSuffix;
         private final String binaryName;
+        private final String archiveExt;
 
-        OsType(String assetSuffix, String binaryName) {
+        OsType(String assetSuffix, String binaryName, String archiveExt) {
             this.assetSuffix = assetSuffix;
             this.binaryName = binaryName;
+            this.archiveExt = archiveExt;
         }
 
         String getAssetSuffix() { return assetSuffix; }
         String getBinaryName() { return binaryName; }
+        String getArchiveExt() { return archiveExt; }
     }
 
     public ModelManager(Chatstral plugin) {
@@ -80,15 +83,17 @@ public class ModelManager {
         return OsType.WINDOWS_X64;
     }
 
-    private String getLlamaServerUrl(OsType os) {
-        String baseUrl = "https://github.com/ggml-org/llama.cpp/releases/download/" + LLAMA_RELEASE + "/";
-        if (os == OsType.WINDOWS_X64) {
-            return baseUrl + "llama-server-" + os.getAssetSuffix() + ".exe";
-        } else if (os == OsType.LINUX_X64 || os == OsType.LINUX_ARM64) {
-            return baseUrl + "llama-server-" + os.getAssetSuffix() + ".zip";
-        } else {
-            return baseUrl + "llama-server-" + os.getAssetSuffix();
+    // the windows zip has no wrapping folder, unlike the tar.gz builds
+    private Path resolveLlamaServerPath(Path modelsFolder, OsType os) {
+        if ("zip".equals(os.getArchiveExt())) {
+            return modelsFolder.resolve(os.getBinaryName());
         }
+        return modelsFolder.resolve("llama-" + LLAMA_RELEASE).resolve(os.getBinaryName());
+    }
+
+    private String getLlamaServerUrl(OsType os) {
+        return "https://github.com/ggml-org/llama.cpp/releases/download/" + LLAMA_RELEASE
+                + "/llama-" + LLAMA_RELEASE + "-bin-" + os.getAssetSuffix() + "." + os.getArchiveExt();
     }
 
     public void initialize() {
@@ -101,13 +106,13 @@ public class ModelManager {
                 OsType os = detectOs();
                 plugin.getLogger().info("Detected OS: " + os.name() + " (" + os.getAssetSuffix() + ")");
 
-                Path llamaServerPath = modelsFolder.resolve(os.getBinaryName());
+                Path llamaServerPath = resolveLlamaServerPath(modelsFolder, os);
                 Path modelPath = modelsFolder.resolve(MODEL_FILE);
 
                 if (!Files.exists(llamaServerPath)) {
                     plugin.getLogger().info("Downloading llama-server for " + os.name() + "...");
-                    String url = getLlamaServerUrl(os);
-                    downloadLlamaServer(url, llamaServerPath, os);
+                    Path archivePath = modelsFolder.resolve("llama-" + LLAMA_RELEASE + "-bin-" + os.getAssetSuffix() + "." + os.getArchiveExt());
+                    downloadLlamaServer(getLlamaServerUrl(os), archivePath, modelsFolder, llamaServerPath, os);
                     plugin.getLogger().info("llama-server downloaded.");
                 }
 
@@ -128,18 +133,28 @@ public class ModelManager {
         });
     }
 
-    private void downloadLlamaServer(String url, Path destPath, OsType os) throws IOException {
-        if (os == OsType.WINDOWS_X64) {
-            downloadFile(url, destPath);
+    private void downloadLlamaServer(String url, Path archivePath, Path destDir, Path binaryPath, OsType os)
+            throws IOException, InterruptedException {
+        downloadFile(url, archivePath);
+        if ("zip".equals(os.getArchiveExt())) {
+            extractZip(archivePath, destDir);
         } else {
-            Path zipPath = destPath.resolveSibling(destPath.getFileName() + ".zip");
-            downloadFile(url, zipPath);
-            extractZip(zipPath, destPath.getParent());
-            Files.deleteIfExists(zipPath);
+            extractTarGz(archivePath, destDir);
         }
+        Files.deleteIfExists(archivePath);
 
-        if (os != OsType.WINDOWS_X64) {
-            destPath.toFile().setExecutable(true);
+        if (!binaryPath.toFile().setExecutable(true)) {
+            plugin.getLogger().warning("Failed to mark llama-server as executable.");
+        }
+    }
+
+    private void extractTarGz(Path archivePath, Path destDir) throws IOException, InterruptedException {
+        Process tar = new ProcessBuilder("tar", "-xzf", archivePath.toString(), "-C", destDir.toString())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(tar.getInputStream().readAllBytes());
+        if (!tar.waitFor(120, TimeUnit.SECONDS) || tar.exitValue() != 0) {
+            throw new IOException("Failed to extract " + archivePath + ": " + output);
         }
     }
 
@@ -209,7 +224,7 @@ public class ModelManager {
                 "-m", modelPath.toString(),
                 "--host", "127.0.0.1",
                 "--port", String.valueOf(getPort()),
-                "-c", "2048"
+                "-c", String.valueOf(plugin.getConfig().getInt("llama-context-size", 2048))
             );
             pb.redirectErrorStream(true);
 

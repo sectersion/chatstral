@@ -32,24 +32,22 @@ public class ShieldstralClient {
     private static final Set<String> YES_TOKENS = Set.of("yes", "yes.", "\"yes\"", "'yes'");
     private static final Set<String> NO_TOKENS = Set.of("no", "no.", "\"no\"", "'no'");
 
-    private static final String INSTRUCT = "You are a strict Minecraft chat moderator. Evaluate messages for harmful content including harassment, hate speech, threats, discrimination, and explicit language. Apply a strict standard - when in doubt, mark as unsafe.";
-    private static final String QUERY = "Does this Minecraft chat message contain harmful content that should be blocked?";
+    private static final String DEFAULT_INSTRUCT = "You are a strict Minecraft chat moderator. Evaluate messages for harmful content including harassment, hate speech, threats, discrimination, and explicit language. Apply a strict standard - when in doubt, mark as unsafe.";
+    private static final String DEFAULT_QUERY = "Does this Minecraft chat message contain harmful content that should be blocked?";
 
     private static final int BATCH_SIZE = 8;
     private static final long BATCH_DELAY_MS = 100;
 
-    private final double threshold;
     private final ConcurrentLinkedQueue<ChatRequest> pendingRequests = new ConcurrentLinkedQueue<>();
     private final AtomicInteger pendingCount = new AtomicInteger(0);
     private final ScheduledExecutorService batchScheduler = Executors.newSingleThreadScheduledExecutor();
 
-    public ShieldstralClient(ModelManager modelManager, Chatstral plugin, double threshold) {
+    public ShieldstralClient(ModelManager modelManager, Chatstral plugin) {
         this.modelManager = modelManager;
         this.plugin = plugin;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
-        this.threshold = threshold;
 
         batchScheduler.scheduleAtFixedRate(this::processBatch, BATCH_DELAY_MS, BATCH_DELAY_MS, TimeUnit.MILLISECONDS);
     }
@@ -88,6 +86,10 @@ public class ShieldstralClient {
         }
 
         try {
+            String instruct = plugin.getConfig().getString("policy-instruct", DEFAULT_INSTRUCT);
+            String query = plugin.getConfig().getString("policy-query", DEFAULT_QUERY);
+            double threshold = plugin.getConfig().getDouble("ai-threshold", 0.5);
+
             JsonObject payload = new JsonObject();
             payload.addProperty("model", "Shieldstral-1.0-3B");
             payload.addProperty("max_tokens", 1);
@@ -104,7 +106,7 @@ public class ShieldstralClient {
             for (ChatRequest req : batch) {
                 String userContent = String.format(
                     "<Instruct>: %s\n\n<Query>: %s\n\n<Document>: %s",
-                    INSTRUCT, QUERY, req.document()
+                    instruct, query, req.document()
                 );
                 JsonObject userMsg = new JsonObject();
                 userMsg.addProperty("role", "user");
@@ -239,10 +241,6 @@ public class ShieldstralClient {
             plugin.getLogger().warning("Failed to parse score: " + e.getMessage());
             return 0.5;
         }
-    }
-
-    public double getThreshold() {
-        return threshold;
     }
 
     public void shutdown() {

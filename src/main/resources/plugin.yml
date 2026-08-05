@@ -2,7 +2,7 @@ name: chatstral
 version: '${version}'
 
 main: com.sectersion.chatstral.Chatstral
-api-version: '26.2'
+api-version: '26.1'
 load: POSTWORLD
 
 commands:

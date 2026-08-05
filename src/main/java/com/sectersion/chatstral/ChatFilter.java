@@ -8,9 +8,8 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ChatFilter implements Listener {
 
@@ -18,7 +17,6 @@ public class ChatFilter implements Listener {
     private final ShieldstralClient shieldstralClient;
     private final Blacklist blacklist;
     private final Map<Player, Long> cooldowns = new ConcurrentHashMap<>();
-    private final Map<Player, PendingChat> pendingChats = new ConcurrentHashMap<>();
 
     public ChatFilter(Chatstral plugin, ShieldstralClient shieldstralClient, Blacklist blacklist) {
         this.plugin = plugin;
@@ -30,7 +28,11 @@ public class ChatFilter implements Listener {
         return plugin.getConfig().getLong("cooldown-ms", 1000);
     }
 
-    @EventHandler(priority = EventPriority.LOW)
+    private boolean logOnly() {
+        return "log".equalsIgnoreCase(plugin.getConfig().getString("filter-mode", "block"));
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         String message = event.getMessage();
@@ -45,10 +47,16 @@ public class ChatFilter implements Listener {
             return;
         }
 
+        boolean logOnly = logOnly();
+
         if (blacklist.isBlocked(message)) {
-            event.setCancelled(true);
-            sendBlockedMessage(player, "Blacklisted content detected.");
-            return;
+            plugin.getLogger().info((logOnly ? "[LOG] Flagged" : "Blocked") + " message from "
+                    + player.getName() + " (blacklist): " + message);
+            if (!logOnly) {
+                event.setCancelled(true);
+                sendBlockedMessage(player, "Blacklisted content detected.");
+                return;
+            }
         }
 
         if (!plugin.getConfig().getBoolean("ai-filter-enabled", true)) {
@@ -59,15 +67,15 @@ public class ChatFilter implements Listener {
             return;
         }
 
-        Component originalFormat = Component.text(event.getFormat());
-        pendingChats.put(player, new PendingChat(message, originalFormat, event));
+        // cancel now, redeliver manually once the async score resolves
+        event.setCancelled(true);
 
         shieldstralClient.checkMessage(player.getName(), message)
                 .orTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .thenAccept(result -> processResult(player, result))
+                .thenAccept(result -> processResult(player, message, result))
                 .exceptionally(ex -> {
                     plugin.getLogger().warning("Filter error: " + ex.getMessage());
-                    pendingChats.remove(player);
+                    passMessage(player, message);
                     return null;
                 });
     }
@@ -88,21 +96,19 @@ public class ChatFilter implements Listener {
         return false;
     }
 
-    private void processResult(Player player, ShieldstralClient.FilterResult result) {
-        PendingChat pending = pendingChats.remove(player);
-        if (pending == null) {
-            return;
-        }
-
+    private void processResult(Player player, String originalMessage, ShieldstralClient.FilterResult result) {
         cooldowns.put(player, System.currentTimeMillis());
+        boolean logOnly = logOnly();
 
         if (result.blocked()) {
-            plugin.getLogger().info("Blocked message from " + player.getName()
-                    + " (score=" + String.format("%.3f", result.score()) + "): " + pending.message());
-            pending.event().setCancelled(true);
+            plugin.getLogger().info((logOnly ? "[LOG] Flagged" : "Blocked") + " message from " + player.getName()
+                    + " (score=" + String.format("%.3f", result.score()) + "): " + originalMessage);
+        }
+
+        if (result.blocked() && !logOnly) {
             sendBlockedMessage(player, "Your message was flagged as inappropriate.");
         } else {
-            pending.event().setFormat(pending.originalFormat().toString());
+            passMessage(player, originalMessage);
         }
     }
 
@@ -116,9 +122,22 @@ public class ChatFilter implements Listener {
         player.sendMessage(suggestion);
     }
 
+    private void passMessage(Player player, String message) {
+        Component displayName = player.displayName();
+        Component formatted = Component.text("<")
+                .append(displayName)
+                .append(Component.text("> "))
+                .append(Component.text(message))
+                .color(NamedTextColor.WHITE);
+
+        for (Player recipient : plugin.getServer().getOnlinePlayers()) {
+            recipient.sendMessage(formatted);
+        }
+
+        plugin.getServer().getConsoleSender().sendMessage(formatted);
+    }
+
     public void clearCooldown(Player player) {
         cooldowns.remove(player);
     }
-
-    private record PendingChat(String message, Component originalFormat, AsyncPlayerChatEvent event) {}
 }

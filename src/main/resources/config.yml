@@ -1,4 +1,10 @@
+# block or log
+filter-mode: block
 ai-filter-enabled: true
 ai-threshold: 0.5
 cooldown-ms: 1000
-llama-port: 8000
+llama-port: 8734
+# higher uses more ram, cpu-only
+llama-context-size: 2048
+policy-instruct: "You are a strict Minecraft chat moderator. Evaluate messages for harmful content including harassment, hate speech, threats, discrimination, and explicit language. Apply a strict standard - when in doubt, mark as unsafe."
+policy-query: "Does this Minecraft chat message contain harmful content that should be blocked?"
