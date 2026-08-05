@@ -1,0 +1,6 @@
+name: chatstral
+version: '${version}'
+
+main: com.sectersion.chatstral.Chatstral
+api-version: '26.2'
+load: POSTWORLD
