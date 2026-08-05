@@ -4,3 +4,17 @@ version: '${version}'
 main: com.sectersion.chatstral.Chatstral
 api-version: '26.2'
 load: POSTWORLD
+
+commands:
+  chatstral:
+    description: Chatstral AI chat filter commands
+    usage: /<command> [reload|status]
+    aliases: [cs, cfilter]
+
+permissions:
+  chatstral.bypass:
+    description: Bypass the chat filter
+    default: op
+  chatstral.admin:
+    description: Admin commands for chatstral
+    default: op

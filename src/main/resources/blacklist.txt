@@ -1,0 +1,11 @@
+# Chatstral Blacklist
+# Add blocked words (one per line, case-insensitive)
+# Add regex patterns with "regex:" prefix
+
+# Example words:
+badword1
+badword2
+
+# Example regex patterns:
+regex:\[spam\]
+regex:(.)\1{4,}
