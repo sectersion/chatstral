@@ -18,8 +18,7 @@ public class ChatFilter implements Listener {
     private final ShieldstralClient shieldstralClient;
     private final Blacklist blacklist;
     private final Map<Player, Long> cooldowns = new ConcurrentHashMap<>();
-
-    private static final long COOLDOWN_MS = 1000;
+    private final Map<Player, PendingChat> pendingChats = new ConcurrentHashMap<>();
 
     public ChatFilter(Chatstral plugin, ShieldstralClient shieldstralClient, Blacklist blacklist) {
         this.plugin = plugin;
@@ -27,7 +26,11 @@ public class ChatFilter implements Listener {
         this.blacklist = blacklist;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
+    private long getCooldownMs() {
+        return plugin.getConfig().getLong("cooldown-ms", 1000);
+    }
+
+    @EventHandler(priority = EventPriority.LOW)
     public void onChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         String message = event.getMessage();
@@ -38,14 +41,13 @@ public class ChatFilter implements Listener {
 
         long now = System.currentTimeMillis();
         Long lastSend = cooldowns.get(player);
-        if (lastSend != null && now - lastSend < COOLDOWN_MS) {
+        if (lastSend != null && now - lastSend < getCooldownMs()) {
             return;
         }
 
         if (blacklist.isBlocked(message)) {
             event.setCancelled(true);
             sendBlockedMessage(player, "Blacklisted content detected.");
-            blacklist.reload();
             return;
         }
 
@@ -57,13 +59,15 @@ public class ChatFilter implements Listener {
             return;
         }
 
-        event.setCancelled(true);
+        Component originalFormat = Component.text(event.getFormat());
+        pendingChats.put(player, new PendingChat(message, originalFormat, event));
 
         shieldstralClient.checkMessage(player.getName(), message)
-                .thenAccept(result -> processResult(player, message, result))
+                .orTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .thenAccept(result -> processResult(player, result))
                 .exceptionally(ex -> {
                     plugin.getLogger().warning("Filter error: " + ex.getMessage());
-                    passMessage(player, message);
+                    pendingChats.remove(player);
                     return null;
                 });
     }
@@ -84,15 +88,21 @@ public class ChatFilter implements Listener {
         return false;
     }
 
-    private void processResult(Player player, String originalMessage, ShieldstralClient.FilterResult result) {
+    private void processResult(Player player, ShieldstralClient.FilterResult result) {
+        PendingChat pending = pendingChats.remove(player);
+        if (pending == null) {
+            return;
+        }
+
         cooldowns.put(player, System.currentTimeMillis());
 
         if (result.blocked()) {
             plugin.getLogger().info("Blocked message from " + player.getName()
-                    + " (score=" + String.format("%.3f", result.score()) + "): " + originalMessage);
+                    + " (score=" + String.format("%.3f", result.score()) + "): " + pending.message());
+            pending.event().setCancelled(true);
             sendBlockedMessage(player, "Your message was flagged as inappropriate.");
         } else {
-            passMessage(player, originalMessage);
+            pending.event().setFormat(pending.originalFormat().toString());
         }
     }
 
@@ -106,22 +116,9 @@ public class ChatFilter implements Listener {
         player.sendMessage(suggestion);
     }
 
-    private void passMessage(Player player, String message) {
-        Component displayName = player.displayName();
-        Component formatted = Component.text("<")
-                .append(displayName)
-                .append(Component.text("> "))
-                .append(Component.text(message))
-                .color(NamedTextColor.WHITE);
-
-        for (Player recipient : plugin.getServer().getOnlinePlayers()) {
-            recipient.sendMessage(formatted);
-        }
-
-        plugin.getServer().getConsoleSender().sendMessage(formatted);
-    }
-
     public void clearCooldown(Player player) {
         cooldowns.remove(player);
     }
+
+    private record PendingChat(String message, Component originalFormat, AsyncPlayerChatEvent event) {}
 }

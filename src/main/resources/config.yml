@@ -1,3 +1,4 @@
 ai-filter-enabled: true
 ai-threshold: 0.5
 cooldown-ms: 1000
+llama-port: 8000

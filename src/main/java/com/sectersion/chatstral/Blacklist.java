@@ -61,40 +61,32 @@ public class Blacklist {
     }
 
     public boolean isBlocked(String message) {
-        String lowerMessage = message.toLowerCase();
-
-        for (String word : blockedWords) {
-            if (lowerMessage.contains(word)) {
-                return true;
-            }
-        }
-
-        for (Pattern pattern : blockedPatterns) {
-            if (pattern.matcher(message).find()) {
-                return true;
-            }
-        }
-
-        return false;
+        return checkBlock(message).blocked();
     }
 
     public String getBlockReason(String message) {
+        return checkBlock(message).reason();
+    }
+
+    private BlockResult checkBlock(String message) {
         String lowerMessage = message.toLowerCase();
 
         for (String word : blockedWords) {
             if (lowerMessage.contains(word)) {
-                return "blacklist_word";
+                return new BlockResult(true, "blacklist_word");
             }
         }
 
         for (Pattern pattern : blockedPatterns) {
             if (pattern.matcher(message).find()) {
-                return "blacklist_pattern";
+                return new BlockResult(true, "blacklist_pattern");
             }
         }
 
-        return null;
+        return new BlockResult(false, null);
     }
+
+    private record BlockResult(boolean blocked, String reason) {}
 
     public void reload() {
         loadBlacklist();

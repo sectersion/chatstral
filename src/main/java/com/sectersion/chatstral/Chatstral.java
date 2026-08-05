@@ -40,6 +40,9 @@ public final class Chatstral extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (shieldstralClient != null) {
+            shieldstralClient.shutdown();
+        }
         if (modelManager != null) {
             modelManager.shutdown();
         }
